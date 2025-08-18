@@ -18,6 +18,8 @@ bot = telebot.TeleBot(TOKEN)
 USERS_FILE = 'users.json'
 LAST_CHOICE_FILE = 'last_choice.json'
 STATS_FILE = 'stats.json'
+LAST_AGR_FILE = 'last_agr.json'
+USED_ROASTS_FILE = 'used_roasts.json'
 
 # Функции для работы с файлами
 def load_data(file_name, default):
@@ -37,6 +39,8 @@ def save_data(file_name, data):
 users = load_data(USERS_FILE, {})
 last_choice = load_data(LAST_CHOICE_FILE, {})
 stats = load_data(STATS_FILE, {})
+last_agr = load_data(LAST_AGR_FILE, {})
+used_roasts = load_data(USED_ROASTS_FILE, {})
 
 # Фразы для roast (agr)
 roast_phrases = [
@@ -188,6 +192,14 @@ def handle_commands(message):
             bot.reply_to(message, f"Вы уже зарегистрированы, долбаёб! @{username}")
 
     elif command == '/agr':
+        current_time = time.time()
+        if chat_id in last_agr and current_time - last_agr[chat_id] < 86400:
+            remaining = int(86400 - (current_time - last_agr[chat_id]))
+            hours = remaining // 3600
+            minutes = (remaining % 3600) // 60
+            bot.reply_to(message, f"Агр уже был! Подождите {hours} ч {minutes} мин.")
+            return
+
         if chat_id not in users or not users[chat_id]:
             bot.reply_to(message, "Нет зарегистрированных участников, сук! Используйте /register.")
             return
@@ -204,11 +216,26 @@ def handle_commands(message):
         target = random.choice(possible_targets)
         target_name = target['name']
 
-        # Фраза с подстановкой
-        phrase = random.choice(roast_phrases).replace("{name}", f"@{target_name}")
+        # Выбираем неповторяющуюся фразу
+        if chat_id not in used_roasts:
+            used_roasts[chat_id] = []
+
+        available_roasts = [r for r in roast_phrases if r not in used_roasts[chat_id]]
+        if not available_roasts:
+            used_roasts[chat_id] = []
+            available_roasts = roast_phrases.copy()
+
+        phrase = random.choice(available_roasts)
+        used_roasts[chat_id].append(phrase)
+        save_data(USED_ROASTS_FILE, used_roasts)
+
+        phrase = phrase.replace("{name}", f"@{target_name}")
 
         response = f"🔥 @{author} запускает агр!\n{phrase}"
         bot.reply_to(message, response)
+
+        last_agr[chat_id] = current_time
+        save_data(LAST_AGR_FILE, last_agr)
 
     elif command == '/monetka':
         result = random.choice(coin_sides)
