@@ -160,7 +160,7 @@ def handle_commands(message):
             names = [u['name'] for u in users[chat_id]]
             bot.reply_to(message, f"Участники: {', '.join(names)}")
 
-        elif command == '/choose':
+    elif command == '/choose':
         if chat_id not in users or len(users[chat_id]) < 2:
             bot.reply_to(message, f"Нужно минимум 2 участника! Сейчас: {len(users.get(chat_id, []))}")
             return
@@ -257,5 +257,3 @@ def handle_commands(message):
 
 print("Бот запущен!")
 bot.polling(none_stop=True)
-
-
