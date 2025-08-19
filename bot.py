@@ -56,6 +56,7 @@ epic_phrases = [
     "Судьба бросила кости: {handsome} идёт в легенды, {not_handsome} — в анекдоты.",
     "Даже драконы бы склонили головы перед {handsome}, но над {not_handsome} смеялись бы гномы.",
     "В этот день мир узнал героя — {handsome}. И узнал, кого винить — {not_handsome}.",
+    "ЖТ всегда хотел бабу, но увы. Герой дня - {handsome}. А пидор, как зачаствую бывает - {not_handsome}.",
 ]
 
 # Монетка
@@ -159,7 +160,7 @@ def handle_commands(message):
             names = [u['name'] for u in users[chat_id]]
             bot.reply_to(message, f"Участники: {', '.join(names)}")
 
-    elif command == '/choose':
+     elif command == '/choose':
         if chat_id not in users or len(users[chat_id]) < 2:
             bot.reply_to(message, f"Нужно минимум 2 участника! Сейчас: {len(users.get(chat_id, []))}")
             return
@@ -189,9 +190,13 @@ def handle_commands(message):
         stats[chat_id][str(not_handsome['id'])]['losses'] += 1
         save_data(STATS_FILE, stats)
 
+        # Фраза для выбора
         phrase = random.choice(epic_phrases).format(handsome="@"+handsome['name'], not_handsome="@"+not_handsome['name'])
-        result = f"{phrase}\n\nКрасавчик - @{handsome['name']}\nПидор - @{not_handsome['name']}"
-        bot.reply_to(message, result)
+
+        # Сообщение с фразой отдельно и потом сообщения для красавчика и пидора
+        bot.reply_to(message, phrase)
+        bot.reply_to(message, f"🎉 Красавчик дня: @{handsome['name']}")
+        bot.reply_to(message, f"👎 Пидор дня: @{not_handsome['name']}")
 
         last_choice[chat_id] = current_time
         save_data(LAST_CHOICE_FILE, last_choice)
@@ -252,3 +257,4 @@ def handle_commands(message):
 
 print("Бот запущен!")
 bot.polling(none_stop=True)
+
