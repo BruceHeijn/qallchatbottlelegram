@@ -160,7 +160,7 @@ def handle_commands(message):
             names = [u['name'] for u in users[chat_id]]
             bot.reply_to(message, f"Участники: {', '.join(names)}")
 
-     elif command == '/choose':
+        elif command == '/choose':
         if chat_id not in users or len(users[chat_id]) < 2:
             bot.reply_to(message, f"Нужно минимум 2 участника! Сейчас: {len(users.get(chat_id, []))}")
             return
@@ -184,14 +184,14 @@ def handle_commands(message):
         for user in [handsome, not_handsome]:
             user_id = str(user['id'])
             if user_id not in stats[chat_id]:
-                stats[chat_id][user_id] = { 'name': user['name'], 'wins': 0, 'losses': 0 }
+                stats[chat_id][user_id] = {'name': user['name'], 'wins': 0, 'losses': 0}
 
         stats[chat_id][str(handsome['id'])]['wins'] += 1
         stats[chat_id][str(not_handsome['id'])]['losses'] += 1
         save_data(STATS_FILE, stats)
 
         # Фраза для выбора
-        phrase = random.choice(epic_phrases).format(handsome="@"+handsome['name'], not_handsome="@"+not_handsome['name'])
+        phrase = random.choice(epic_phrases).format(handsome="@" + handsome['name'], not_handsome="@" + not_handsome['name'])
 
         # Сообщение с фразой отдельно и потом сообщения для красавчика и пидора
         bot.reply_to(message, phrase)
@@ -257,4 +257,5 @@ def handle_commands(message):
 
 print("Бот запущен!")
 bot.polling(none_stop=True)
+
 
