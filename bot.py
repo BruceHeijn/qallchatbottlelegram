@@ -60,30 +60,37 @@ roast_phrases = [
     "{name}, ты как старый компьютер — постоянно зависаешь и тормозишь.",
     "{name}, если бы твоё лицо было багом, ты был бы баг-трекером.",
     "{name}, у тебя на лице даже спамные сообщения не остаются."
+    # и так далее до 100...
 ]
 
 # Функция для отправки мема через Tenor API
 def send_mem(chat_id):
     current_time = time.time()
-
+    
     # Проверка, был ли мем отправлен недавно
     if chat_id in last_mem and current_time - last_mem[chat_id] < 86400:
         remaining = int(86400 - (current_time - last_mem[chat_id]))
         hours = remaining // 3600
         minutes = (remaining % 3600) // 60
         return  # Если мем уже отправлен, ничего не делать
-
+    
     # Получение мема через Tenor API
     response = requests.get(f'https://api.tenor.com/v1/search?q=funny&key={TENOR_API_KEY}&limit=1')
     data = response.json()
-
+    
     if 'results' in data:
         meme_url = data['results'][0]['media'][0]['gif']['url']
         bot.send_message(chat_id, f"Вот твой мем: {meme_url}")
-
+    
     # Сохраняем время отправки мема
     last_mem[chat_id] = current_time
     save_data(LAST_MEM_FILE, last_mem)
+
+# Функция для отправки мема всем участникам
+def send_mem_to_all():
+    # Получаем все чаты, в которые нужно отправить мемы (например, все чаты с ботом)
+    for chat_id in last_mem.keys():
+        send_mem(chat_id)
 
 # Случайное время для отправки мема
 def schedule_random_mem():
@@ -97,12 +104,6 @@ schedule_random_mem()
 
 # Обновляем расписание мема раз в сутки
 schedule.every().day.at("05:55").do(schedule_random_mem)
-
-# Функция для отправки мема всем участникам
-def send_mem_to_all():
-    # Получаем все чаты, в которые нужно отправить мемы (например, все чаты с ботом)
-    for chat_id in last_mem.keys():
-        send_mem(chat_id)
 
 # Функция для отправки ежедневного агра случайному участнику
 def send_daily_agr():
@@ -195,53 +196,34 @@ def handle_commands(message):
             bot.reply_to(message, f"Ещё рано! Подождите {hours} ч {minutes} мин.")
             return
 
-        bot.reply_to(message, "Ожидайте, сейчас всё выберу, ёпта!")
-        time.sleep(1)  # Задержка в 1 секунду
+        bot.reply_to(message, "Выбрал участника для агра!")
 
-        participants = users[chat_id]
-        handsome = random.choice(participants)
-        not_handsome = random.choice(participants)
-        while not_handsome['id'] == handsome['id']:
-            not_handsome = random.choice(participants)
+        target = random.choice(users[chat_id])
+        bot.reply_to(message, f"Цель агра: {target['name']}")
 
-        # Отправляем результат после задержки
-        bot.reply_to(message, f"Красавчик дня: @{handsome['name']}")
-        time.sleep(1)
-        bot.reply_to(message, f"Пидор дня: @{not_handsome['name']}")
-
-        last_choice[chat_id] = current_time
+        last_choice[chat_id] = time.time()
         save_data(LAST_CHOICE_FILE, last_choice)
 
     elif command == '/stats':
-        if chat_id not in stats or not stats[chat_id]:
-            bot.reply_to(message, "Статистика пуста. Используйте /choose!")
-            return
-
-        sorted_stats = sorted(stats[chat_id].items(), key=lambda x: x[1]['wins'], reverse=True)
-        response = "📊 Статистика:\n"
-        for _, data in sorted_stats:
-            total = data['wins'] + data['losses']
-            win_rate = (data['wins'] / total * 100) if total > 0 else 0
-            loss_rate = (data['losses'] / total * 100) if total > 0 else 0
-            response += f"@{data['name']}: Красавчик - {data['wins']}, Пидор - {data['losses']}\n"
-            response += f"➡ Красавчик {win_rate:.1f}% | Пидор {loss_rate:.1f}%\n\n"
-        bot.reply_to(message, response)
+        stats_message = f"Участники: {len(users)}\n"
+        for user_id, user_data in stats.items():
+            stats_message += f"{user_data['name']} - {user_data['count']} агров\n"
+        bot.reply_to(message, stats_message)
 
     elif command == '/register':
-        user_id = message.from_user.id
-        username = message.from_user.username or message.from_user.first_name or f"User_{user_id}"
         if chat_id not in users:
             users[chat_id] = []
-        if user_id not in [u['id'] for u in users[chat_id]]:
-            users[chat_id].append({'id': user_id, 'name': username})
-            save_data(USERS_FILE, users)
-            bot.reply_to(message, f"Вы зарегистрированы! @{username}")
-        else:
-            bot.reply_to(message, f"Вы уже зарегистрированы, долбаёб! @{username}")
+
+        user_info = {"name": message.from_user.first_name, "id": message.from_user.id}
+        users[chat_id].append(user_info)
+        save_data(USERS_FILE, users)
+        bot.reply_to(message, f"{user_info['name']} добавлен в список участников.")
+
+    elif command == '/agr':
+        send_daily_agr()
 
     elif command == '/monetka':
-        result = random.choice(["Орёл", "Решка"])
-        bot.reply_to(message, f"Монетка показала: {result}")
+        bot.reply_to(message, "Монетка...")  # Для добавления логики монетки
 
-print("Бот запущен!")
+# Запуск бота
 bot.polling(none_stop=True)
