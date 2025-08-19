@@ -86,12 +86,6 @@ def send_mem(chat_id):
     last_mem[chat_id] = current_time
     save_data(LAST_MEM_FILE, last_mem)
 
-# Функция для отправки мема всем участникам
-def send_mem_to_all():
-    # Получаем все чаты, в которые нужно отправить мемы (например, все чаты с ботом)
-    for chat_id in last_mem.keys():
-        send_mem(chat_id)
-
 # Случайное время для отправки мема
 def schedule_random_mem():
     schedule.clear('daily_mem')
@@ -104,6 +98,12 @@ schedule_random_mem()
 
 # Обновляем расписание мема раз в сутки
 schedule.every().day.at("05:55").do(schedule_random_mem)
+
+# Функция для отправки мема всем участникам
+def send_mem_to_all():
+    # Получаем все чаты, в которые нужно отправить мемы (например, все чаты с ботом)
+    for chat_id in last_mem.keys():
+        send_mem(chat_id)
 
 # Функция для отправки ежедневного агра случайному участнику
 def send_daily_agr():
@@ -189,6 +189,7 @@ def handle_commands(message):
             return
 
         current_time = time.time()
+
         if chat_id in last_choice and current_time - last_choice[chat_id] < 86400:
             remaining = int(86400 - (current_time - last_choice[chat_id]))
             hours = remaining // 3600
@@ -196,34 +197,33 @@ def handle_commands(message):
             bot.reply_to(message, f"Ещё рано! Подождите {hours} ч {minutes} мин.")
             return
 
-        bot.reply_to(message, "Выбрал участника для агра!")
+        bot.reply_to(message, "Подождите, я думаю...")
 
-        target = random.choice(users[chat_id])
-        bot.reply_to(message, f"Цель агра: {target['name']}")
+        time.sleep(1)
+
+        participants = users[chat_id]
+        
+        # Выбираем "пидора дня" случайным образом
+        pidor = random.choice(participants)
+        
+        # Выбираем "красавчика дня" случайным образом, исключая выбранного пидора
+        remaining_participants = [p for p in participants if p != pidor]
+        krasavchik = random.choice(remaining_participants)
+
+        pidor_name = pidor['name']
+        krasavchik_name = krasavchik['name']
+        
+        bot.reply_to(message, "Минутку...")
+
+        time.sleep(2)
+
+        bot.reply_to(message, f"🔥 Итак... Настал момент!\n\n"
+                              f"👎 **Пидор дня**: @{pidor_name} — поздравляем!\n"
+                              f"💪 **Красавчик дня**: @{krasavchik_name} — поздравляем!\n"
+                              "Ну что, кто следующий?")
 
         last_choice[chat_id] = time.time()
         save_data(LAST_CHOICE_FILE, last_choice)
 
-    elif command == '/stats':
-        stats_message = f"Участники: {len(users)}\n"
-        for user_id, user_data in stats.items():
-            stats_message += f"{user_data['name']} - {user_data['count']} агров\n"
-        bot.reply_to(message, stats_message)
-
-    elif command == '/register':
-        if chat_id not in users:
-            users[chat_id] = []
-
-        user_info = {"name": message.from_user.first_name, "id": message.from_user.id}
-        users[chat_id].append(user_info)
-        save_data(USERS_FILE, users)
-        bot.reply_to(message, f"{user_info['name']} добавлен в список участников.")
-
-    elif command == '/agr':
-        send_daily_agr()
-
-    elif command == '/monetka':
-        bot.reply_to(message, "Монетка...")  # Для добавления логики монетки
-
-# Запуск бота
+# Запускаем бота
 bot.polling(none_stop=True)
