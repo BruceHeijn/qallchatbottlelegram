@@ -60,28 +60,27 @@ roast_phrases = [
     "{name}, ты как старый компьютер — постоянно зависаешь и тормозишь.",
     "{name}, если бы твоё лицо было багом, ты был бы баг-трекером.",
     "{name}, у тебя на лице даже спамные сообщения не остаются."
-    # и так далее до 100...
 ]
 
 # Функция для отправки мема через Tenor API
 def send_mem(chat_id):
     current_time = time.time()
-    
+
     # Проверка, был ли мем отправлен недавно
     if chat_id in last_mem and current_time - last_mem[chat_id] < 86400:
         remaining = int(86400 - (current_time - last_mem[chat_id]))
         hours = remaining // 3600
         minutes = (remaining % 3600) // 60
         return  # Если мем уже отправлен, ничего не делать
-    
+
     # Получение мема через Tenor API
     response = requests.get(f'https://api.tenor.com/v1/search?q=funny&key={TENOR_API_KEY}&limit=1')
     data = response.json()
-    
+
     if 'results' in data:
         meme_url = data['results'][0]['media'][0]['gif']['url']
         bot.send_message(chat_id, f"Вот твой мем: {meme_url}")
-    
+
     # Сохраняем время отправки мема
     last_mem[chat_id] = current_time
     save_data(LAST_MEM_FILE, last_mem)
