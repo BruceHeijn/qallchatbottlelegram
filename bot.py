@@ -20,6 +20,7 @@ LAST_CHOICE_FILE = 'last_choice.json'
 STATS_FILE = 'stats.json'
 LAST_AGR_FILE = 'last_agr.json'
 USED_ROASTS_FILE = 'used_roasts.json'
+LAST_MEM_FILE = 'last_mem.json'  # Файл для хранения времени последнего мема
 
 # Функции для работы с файлами
 def load_data(file_name, default):
@@ -41,6 +42,7 @@ last_choice = load_data(LAST_CHOICE_FILE, {})
 stats = load_data(STATS_FILE, {})
 last_agr = load_data(LAST_AGR_FILE, {})
 used_roasts = load_data(USED_ROASTS_FILE, {})
+last_mem = load_data(LAST_MEM_FILE, {})  # Загружаем время последнего мема
 
 # Фразы для roast (agr) - обновленные
 roast_phrases = [
@@ -51,7 +53,6 @@ roast_phrases = [
     "{name}, когда мозги раздавали, ты в очереди за мемами стоял.",
     "{name}, с тобой скучно даже котам.",
     "{name}, ты словно финал Игры Престолов — все ждали большего, а получили тебя.",
-    # Добавляем еще 93 фразы...
     "{name}, ты как неудачный эксперимент с питоном — без конца падаешь!",
     "{name}, с твоим интеллектом и код не компилируется.",
     "{name}, ты как терабайт на флешке — всё поместилось, но ничего не работает.",
@@ -59,10 +60,50 @@ roast_phrases = [
     "{name}, ты как старый компьютер — постоянно зависаешь и тормозишь.",
     "{name}, если бы твоё лицо было багом, ты был бы баг-трекером.",
     "{name}, у тебя на лице даже спамные сообщения не остаются."
-    "{name}, тебе придётся отсосать ЖТ!"
-    "{name}, ты сегодня молодец, в жопе у тебя конец"
     # и так далее до 100...
 ]
+
+# Функция для отправки мема через Tenor API
+def send_mem(chat_id):
+    current_time = time.time()
+    
+    # Проверка, был ли мем отправлен недавно
+    if chat_id in last_mem and current_time - last_mem[chat_id] < 86400:
+        remaining = int(86400 - (current_time - last_mem[chat_id]))
+        hours = remaining // 3600
+        minutes = (remaining % 3600) // 60
+        return  # Если мем уже отправлен, ничего не делать
+    
+    # Получение мема через Tenor API
+    response = requests.get(f'https://api.tenor.com/v1/search?q=funny&key={TENOR_API_KEY}&limit=1')
+    data = response.json()
+    
+    if 'results' in data:
+        meme_url = data['results'][0]['media'][0]['gif']['url']
+        bot.send_message(chat_id, f"Вот твой мем: {meme_url}")
+    
+    # Сохраняем время отправки мема
+    last_mem[chat_id] = current_time
+    save_data(LAST_MEM_FILE, last_mem)
+
+# Случайное время для отправки мема
+def schedule_random_mem():
+    schedule.clear('daily_mem')
+    mem_hour = random.randint(6, 23)  # Случайный час в интервале от 6 до 23
+    mem_minute = random.randint(0, 59)  # Случайная минута
+    schedule.every().day.at(f"{mem_hour:02d}:{mem_minute:02d}").do(send_mem_to_all).tag('daily_mem')
+
+# Обновляем расписание раз в сутки
+schedule_random_mem()
+
+# Обновляем расписание мема раз в сутки
+schedule.every().day.at("05:55").do(schedule_random_mem)
+
+# Функция для отправки мема всем участникам
+def send_mem_to_all():
+    # Получаем все чаты, в которые нужно отправить мемы (например, все чаты с ботом)
+    for chat_id in last_mem.keys():
+        send_mem(chat_id)
 
 # Функция для отправки ежедневного агра случайному участнику
 def send_daily_agr():
@@ -155,26 +196,19 @@ def handle_commands(message):
             bot.reply_to(message, f"Ещё рано! Подождите {hours} ч {minutes} мин.")
             return
 
+        bot.reply_to(message, "Ожидайте, сейчас всё выберу, ёпта!")
+        time.sleep(1)  # Задержка в 1 секунду
+
         participants = users[chat_id]
         handsome = random.choice(participants)
         not_handsome = random.choice(participants)
         while not_handsome['id'] == handsome['id']:
             not_handsome = random.choice(participants)
 
-        if chat_id not in stats:
-            stats[chat_id] = {}
-        for user in [handsome, not_handsome]:
-            user_id = str(user['id'])
-            if user_id not in stats[chat_id]:
-                stats[chat_id][user_id] = { 'name': user['name'], 'wins': 0, 'losses': 0 }
-
-        stats[chat_id][str(handsome['id'])]['wins'] += 1
-        stats[chat_id][str(not_handsome['id'])]['losses'] += 1
-        save_data(STATS_FILE, stats)
-
-        phrase = random.choice(epic_phrases).format(handsome="@"+handsome['name'], not_handsome="@"+not_handsome['name'])
-        result = f"{phrase}\n\nКрасавчик - @{handsome['name']}\nПидор - @{not_handsome['name']}"
-        bot.reply_to(message, result)
+        # Отправляем результат после задержки
+        bot.reply_to(message, f"Красавчик дня: @{handsome['name']}")
+        time.sleep(1)
+        bot.reply_to(message, f"Пидор дня: @{not_handsome['name']}")
 
         last_choice[chat_id] = current_time
         save_data(LAST_CHOICE_FILE, last_choice)
@@ -207,9 +241,8 @@ def handle_commands(message):
             bot.reply_to(message, f"Вы уже зарегистрированы, долбаёб! @{username}")
 
     elif command == '/monetka':
-        result = random.choice(coin_sides)
+        result = random.choice(["Орёл", "Решка"])
         bot.reply_to(message, f"Монетка показала: {result}")
 
 print("Бот запущен!")
 bot.polling(none_stop=True)
-
