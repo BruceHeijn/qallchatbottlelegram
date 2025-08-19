@@ -18,9 +18,6 @@ bot = telebot.TeleBot(TOKEN)
 USERS_FILE = 'users.json'
 LAST_CHOICE_FILE = 'last_choice.json'
 STATS_FILE = 'stats.json'
-LAST_AGR_FILE = 'last_agr.json'
-USED_ROASTS_FILE = 'used_roasts.json'
-LAST_MEM_FILE = 'last_mem.json'  # Файл для хранения времени последнего мема
 
 # Функции для работы с файлами
 def load_data(file_name, default):
@@ -40,9 +37,6 @@ def save_data(file_name, data):
 users = load_data(USERS_FILE, {})
 last_choice = load_data(LAST_CHOICE_FILE, {})
 stats = load_data(STATS_FILE, {})
-last_agr = load_data(LAST_AGR_FILE, {})
-used_roasts = load_data(USED_ROASTS_FILE, {})
-last_mem = load_data(LAST_MEM_FILE, {})  # Загружаем время последнего мема
 
 # Фразы для roast (agr)
 roast_phrases = [
@@ -53,111 +47,58 @@ roast_phrases = [
     "{name}, когда мозги раздавали, ты в очереди за мемами стоял.",
     "{name}, с тобой скучно даже котам.",
     "{name}, ты словно финал Игры Престолов — все ждали большего, а получили тебя.",
-    "{name}, ты как неудачный эксперимент с питоном — без конца падаешь!",
-    "{name}, с твоим интеллектом и код не компилируется.",
-    "{name}, ты как терабайт на флешке — всё поместилось, но ничего не работает.",
-    "{name}, даже вирусы обходят твою голову стороной.",
-    "{name}, ты как старый компьютер — постоянно зависаешь и тормозишь.",
-    "{name}, если бы твоё лицо было багом, ты был бы баг-трекером.",
-    "{name}, у тебя на лице даже спамные сообщения не остаются."
 ]
 
-# Функция для отправки мема через Tenor API
-def send_mem(chat_id):
-    current_time = time.time()
-    
-    # Проверка, был ли мем отправлен недавно
-    if chat_id in last_mem and current_time - last_mem[chat_id] < 86400:
-        remaining = int(86400 - (current_time - last_mem[chat_id]))
-        hours = remaining // 3600
-        minutes = (remaining % 3600) // 60
-        return  # Если мем уже отправлен, ничего не делать
-    
-    # Получение мема через Tenor API
-    response = requests.get(f'https://api.tenor.com/v1/search?q=funny&key={TENOR_API_KEY}&limit=1')
-    data = response.json()
-    
-    if 'results' in data:
-        meme_url = data['results'][0]['media'][0]['gif']['url']
-        bot.send_message(chat_id, f"Вот твой мем: {meme_url}")
-    
-    # Сохраняем время отправки мема
-    last_mem[chat_id] = current_time
-    save_data(LAST_MEM_FILE, last_mem)
+# Эпичные фразы для choose
+epic_phrases = [
+    "В великой битве судеб {handsome} восстал, а {not_handsome} пал...",
+    "Как сказал бы Гендальф: красавчик сегодня — {handsome}, а в тени остался {not_handsome}.",
+    "Судьба бросила кости: {handsome} идёт в легенды, {not_handsome} — в анекдоты.",
+    "Даже драконы бы склонили головы перед {handsome}, но над {not_handsome} смеялись бы гномы.",
+    "В этот день мир узнал героя — {handsome}. И узнал, кого винить — {not_handsome}.",
+]
 
-# Функция для отправки мема всем участникам
-def send_mem_to_all():
-    # Получаем все чаты, в которые нужно отправить мемы (например, все чаты с ботом)
-    for chat_id in last_mem.keys():
-        send_mem(chat_id)
+# Монетка
+coin_sides = ["Орёл", "Решка", "Монета встала на ребро, оба получите в ебло!", "Монета улетела и не вернулась, твоя попа распархнулась 🪙"]
 
-# Случайное время для отправки мема
-def schedule_random_mem():
-    schedule.clear('daily_mem')
-    mem_hour = random.randint(6, 23)  # Случайный час в интервале от 6 до 23
-    mem_minute = random.randint(0, 59)  # Случайная минута
-    schedule.every().day.at(f"{mem_hour:02d}:{mem_minute:02d}").do(send_mem_to_all).tag('daily_mem')
-
-# Обновляем расписание раз в сутки
-schedule_random_mem()
-
-# Обновляем расписание мема раз в сутки
-schedule.every().day.at("05:55").do(schedule_random_mem)
-
-# Функция для отправки ежедневного агра случайному участнику
-def send_daily_agr():
+# Функция для отправки случайного мема
+def send_daily_meme():
     for chat_id in users.keys():
-        current_time = time.time()
+        try:
+            url = f"https://tenor.googleapis.com/v2/search?q=funny&key={TENOR_API_KEY}&limit=20"
+            r = requests.get(url)
+            if r.status_code == 200:
+                data = r.json()
+                if "results" in data and len(data["results"]) > 0:
+                    gif_url = random.choice(data["results"])["media_formats"]["gif"]["url"]
+                    bot.send_animation(chat_id, gif_url, caption="Ваш ежедневный мемчик 🤣")
+        except Exception as e:
+            print(f"Ошибка отправки мема: {e}")
 
-        # Проверяем, был ли агр недавно
-        if chat_id in last_agr and current_time - last_agr[chat_id] < 86400:
-            remaining = int(86400 - (current_time - last_agr[chat_id]))
-            hours = remaining // 3600
-            minutes = (remaining % 3600) // 60
-            continue
+# Функция для отправки roast
+def send_daily_roast():
+    for chat_id in users.keys():
+        for participant in users[chat_id]:
+            phrase = random.choice(roast_phrases).replace("{name}", f"@{participant['name']}")
+            try:
+                bot.send_message(chat_id, phrase)
+            except Exception as e:
+                print(f"Ошибка отправки roast: {e}")
 
-        if chat_id not in users or len(users[chat_id]) == 0:
-            continue
+# Случайное время для запуска заданий
+def schedule_random_times():
+    schedule.clear('daily_tasks')
+    meme_hour = random.randint(6, 23)
+    meme_minute = random.randint(0, 59)
+    roast_hour = random.randint(6, 23)
+    roast_minute = random.randint(0, 59)
 
-        # Автор команды
-        author_id = random.choice(users[chat_id])['id']
-        author = f"User_{author_id}"
-
-        # Цель агра (рандомный участник)
-        target = random.choice(users[chat_id])
-        target_name = target['name']
-
-        # Выбираем неповторяющуюся фразу
-        if chat_id not in used_roasts:
-            used_roasts[chat_id] = []
-
-        available_roasts = [r for r in roast_phrases if r not in used_roasts[chat_id]]
-        if not available_roasts:
-            used_roasts[chat_id] = []  # Сбрасываем использованные фразы
-            available_roasts = roast_phrases.copy()
-
-        phrase = random.choice(available_roasts)
-        used_roasts[chat_id].append(phrase)
-        save_data(USED_ROASTS_FILE, used_roasts)
-
-        # Отправка агра
-        phrase = phrase.replace("{name}", f"@{target_name}")
-        response = f"🔥 @{author} запускает агр!\n{phrase}"
-        bot.send_message(chat_id, response)
-
-        last_agr[chat_id] = current_time
-        save_data(LAST_AGR_FILE, last_agr)
-
-# Случайное время для запуска агра
-def schedule_random_agr():
-    schedule.clear('daily_agr')
-    agr_hour = random.randint(6, 23)
-    agr_minute = random.randint(0, 59)
-    schedule.every().day.at(f"{agr_hour:02d}:{agr_minute:02d}").do(send_daily_agr).tag('daily_agr')
+    schedule.every().day.at(f"{meme_hour:02d}:{meme_minute:02d}").do(send_daily_meme).tag('daily_tasks')
+    schedule.every().day.at(f"{roast_hour:02d}:{roast_minute:02d}").do(send_daily_roast).tag('daily_tasks')
 
 # Обновляем расписание раз в сутки
-schedule_random_agr()
-schedule.every().day.at("05:55").do(schedule_random_agr)
+schedule_random_times()
+schedule.every().day.at("05:55").do(schedule_random_times)
 
 def run_scheduler():
     while True:
@@ -188,7 +129,6 @@ def handle_commands(message):
             return
 
         current_time = time.time()
-
         if chat_id in last_choice and current_time - last_choice[chat_id] < 86400:
             remaining = int(86400 - (current_time - last_choice[chat_id]))
             hours = remaining // 3600
@@ -196,31 +136,83 @@ def handle_commands(message):
             bot.reply_to(message, f"Ещё рано! Подождите {hours} ч {minutes} мин.")
             return
 
-        bot.reply_to(message, "Подождите, я думаю...")
-        time.sleep(1)
-
         participants = users[chat_id]
+        handsome = random.choice(participants)
+        not_handsome = random.choice(participants)
+        while not_handsome['id'] == handsome['id']:
+            not_handsome = random.choice(participants)
 
-        # Выбираем "пидора дня" случайным образом
-        pidor = random.choice(participants)
+        if chat_id not in stats:
+            stats[chat_id] = {}
+        for user in [handsome, not_handsome]:
+            user_id = str(user['id'])
+            if user_id not in stats[chat_id]:
+                stats[chat_id][user_id] = { 'name': user['name'], 'wins': 0, 'losses': 0 }
 
-        # Выбираем "красавчика дня" случайным образом, исключая выбранного пидора
-        remaining_participants = [p for p in participants if p != pidor]
-        krasavchik = random.choice(remaining_participants)
+        stats[chat_id][str(handsome['id'])]['wins'] += 1
+        stats[chat_id][str(not_handsome['id'])]['losses'] += 1
+        save_data(STATS_FILE, stats)
 
-        pidor_name = pidor['name']
-        krasavchik_name = krasavchik['name']
+        phrase = random.choice(epic_phrases).format(handsome="@"+handsome['name'], not_handsome="@"+not_handsome['name'])
+        result = f"{phrase}\n\nКрасавчик - @{handsome['name']}\nПидор - @{not_handsome['name']}"
+        bot.reply_to(message, result)
 
-        bot.reply_to(message, "Минутку...")
-        time.sleep(2)
-
-        bot.reply_to(message, f"🔥 Итак... Настал момент!\n\n"
-                              f"👎 **Пидор дня**: @{pidor_name} — поздравляем!\n"
-                              f"💪 **Красавчик дня**: @{krasavchik_name} — поздравляем!\n"
-                              "Ну что, кто следующий?")
-
-        last_choice[chat_id] = time.time()
+        last_choice[chat_id] = current_time
         save_data(LAST_CHOICE_FILE, last_choice)
 
-# Запуск бота
+    elif command == '/stats':
+        if chat_id not in stats or not stats[chat_id]:
+            bot.reply_to(message, "Статистика пуста. Используйте /choose!")
+            return
+
+        sorted_stats = sorted(stats[chat_id].items(), key=lambda x: x[1]['wins'], reverse=True)
+        response = "📊 Статистика:\n"
+        for _, data in sorted_stats:
+            total = data['wins'] + data['losses']
+            win_rate = (data['wins'] / total * 100) if total > 0 else 0
+            loss_rate = (data['losses'] / total * 100) if total > 0 else 0
+            response += f"@{data['name']}: Красавчик - {data['wins']}, Пидор - {data['losses']}\n"
+            response += f"➡ Красавчик {win_rate:.1f}% | Пидор {loss_rate:.1f}%\n\n"
+        bot.reply_to(message, response)
+
+    elif command == '/register':
+        user_id = message.from_user.id
+        username = message.from_user.username or message.from_user.first_name or f"User_{user_id}"
+        if chat_id not in users:
+            users[chat_id] = []
+        if user_id not in [u['id'] for u in users[chat_id]]:
+            users[chat_id].append({'id': user_id, 'name': username})
+            save_data(USERS_FILE, users)
+            bot.reply_to(message, f"Вы зарегистрированы! @{username}")
+        else:
+            bot.reply_to(message, f"Вы уже зарегистрированы, долбаёб! @{username}")
+
+    elif command == '/agr':
+        if chat_id not in users or not users[chat_id]:
+            bot.reply_to(message, "Нет зарегистрированных участников, сук! Используйте /register.")
+            return
+
+        # Автор команды
+        author_id = message.from_user.id
+        author = message.from_user.username or message.from_user.first_name or f"User_{author_id}"
+
+        # Цель агра (не автор)
+        possible_targets = [u for u in users[chat_id] if u['id'] != author_id]
+        if not possible_targets:
+            bot.reply_to(message, "Нужно минимум 2 участника, чтобы запускать агр!")
+            return
+        target = random.choice(possible_targets)
+        target_name = target['name']
+
+        # Фраза с подстановкой
+        phrase = random.choice(roast_phrases).replace("{name}", f"@{target_name}")
+
+        response = f"🔥 @{author} запускает агр!\n{phrase}"
+        bot.reply_to(message, response)
+
+    elif command == '/monetka':
+        result = random.choice(coin_sides)
+        bot.reply_to(message, f"Монетка показала: {result}")
+
+print("Бот запущен!")
 bot.polling(none_stop=True)
