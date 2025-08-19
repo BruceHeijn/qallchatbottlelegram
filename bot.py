@@ -13,7 +13,7 @@ from google.oauth2.service_account import Credentials
 # Загружаем токены из переменных окружения
 TOKEN = os.getenv("TOKEN")  # Токен бота
 TENOR_API_KEY = os.getenv("TENOR_API_KEY")  # API-ключ Tenor
-GOOGLE_CREDENTIALS = os.getenv("GOOGLE_CREDENTIALS_JSON")  # JSON-ключ Google Cloud
+GOOGLE_CREDENTIALS = os.getenv("GOOGLE_CREDENTIALS")  # JSON-ключ Google Cloud
 
 bot = telebot.TeleBot(TOKEN)
 
@@ -310,3 +310,4 @@ def handle_commands(message):
 
 print("Бот запущен!")
 bot.polling(none_stop=True)
+
