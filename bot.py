@@ -78,12 +78,19 @@ def send_daily_meme():
 # Функция для отправки roast
 def send_daily_roast():
     for chat_id in users.keys():
+        if chat_id not in users or not users[chat_id]:
+            continue  # Если нет участников, пропускаем
+
+        # Выбираем случайного участника для агра
+        target = random.choice(users[chat_id])
+        target_name = target['name']
+
+        # Фраза с подстановкой
+        phrase = random.choice(roast_phrases).replace("{name}", f"@{target_name}")
+
+        # Отправляем агр
         for participant in users[chat_id]:
-            phrase = random.choice(roast_phrases).replace("{name}", f"@{participant['name']}")
-            try:
-                bot.send_message(chat_id, phrase)
-            except Exception as e:
-                print(f"Ошибка отправки roast: {e}")
+            bot.send_message(chat_id, f"🔥 @{participant['name']} запускает агр на @{target_name}!\n{phrase}")
 
 # Случайное время для запуска заданий
 def schedule_random_times():
@@ -95,6 +102,35 @@ def schedule_random_times():
 
     schedule.every().day.at(f"{meme_hour:02d}:{meme_minute:02d}").do(send_daily_meme).tag('daily_tasks')
     schedule.every().day.at(f"{roast_hour:02d}:{roast_minute:02d}").do(send_daily_roast).tag('daily_tasks')
+
+# Функция для отправки агра один раз в день
+def send_daily_agr():
+    for chat_id in users.keys():
+        if chat_id not in users or not users[chat_id]:
+            continue  # Если нет участников, пропускаем
+
+        # Выбираем случайного участника для агра
+        target = random.choice(users[chat_id])
+        target_name = target['name']
+
+        # Фраза с подстановкой
+        phrase = random.choice(roast_phrases).replace("{name}", f"@{target_name}")
+
+        # Отправляем агр
+        for participant in users[chat_id]:
+            bot.send_message(chat_id, f"🔥 @{participant['name']} запускает агр на @{target_name}!\n{phrase}")
+
+# Запускаем агр один раз в день в случайное время
+def schedule_daily_agr():
+    schedule.clear('daily_agr')
+    agr_hour = random.randint(6, 23)
+    agr_minute = random.randint(0, 59)
+
+    schedule.every().day.at(f"{agr_hour:02d}:{agr_minute:02d}").do(send_daily_agr).tag('daily_agr')
+
+# Обновляем расписание агра раз в сутки
+schedule_daily_agr()
+schedule.every().day.at("05:55").do(schedule_daily_agr)
 
 # Обновляем расписание раз в сутки
 schedule_random_times()
