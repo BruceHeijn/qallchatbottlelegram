@@ -17,7 +17,7 @@ from flask import Flask, request
 app = Flask(__name__)
 
 # Загружаем токены из переменных окружения
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = os.getenv("TOKEN")
 TENOR_API_KEY = os.getenv("TENOR_API_KEY")
 GOOGLE_CREDENTIALS = os.getenv("GOOGLE_CREDENTIALS")
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
@@ -579,3 +579,4 @@ if __name__ == "__main__":
     else:
         print("Вебхук не установлен, использую polling")
         bot.infinity_polling()
+
