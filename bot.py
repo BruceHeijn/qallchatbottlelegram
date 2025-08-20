@@ -9,22 +9,26 @@ import requests
 import datetime
 import gspread
 from google.oauth2.service_account import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from flask import Flask, request
 
 # Инициализация Flask для вебхуков
 app = Flask(__name__)
 
 # Загружаем токены из переменных окружения
-BOT_TOKEN = os.getenv("TOKEN")  # Исправлено с TOKEN
+BOT_TOKEN = os.getenv("TOKEN")
 TENOR_API_KEY = os.getenv("TENOR_API_KEY")
 GOOGLE_CREDENTIALS = os.getenv("GOOGLE_CREDENTIALS")
-SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")  # Исправлено с хардкода
+SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
+RAILWAY_PUBLIC_DOMAIN = os.getenv("RAILWAY_PUBLIC_DOMAIN")
 
 # Проверка переменных окружения
 print(f"BOT_TOKEN: {'Set' if BOT_TOKEN else 'Not set'}")
 print(f"TENOR_API_KEY: {'Set' if TENOR_API_KEY else 'Not set'}")
 print(f"GOOGLE_CREDENTIALS: {GOOGLE_CREDENTIALS[:50] if GOOGLE_CREDENTIALS else 'Not set'}...")
 print(f"SPREADSHEET_ID: {SPREADSHEET_ID if SPREADSHEET_ID else 'Not set'}")
+print(f"RAILWAY_PUBLIC_DOMAIN: {RAILWAY_PUBLIC_DOMAIN if RAILWAY_PUBLIC_DOMAIN else 'Not set'}")
 
 # Проверка, что все переменные заданы
 if not all([BOT_TOKEN, TENOR_API_KEY, GOOGLE_CREDENTIALS, SPREADSHEET_ID]):
@@ -34,13 +38,52 @@ if not all([BOT_TOKEN, TENOR_API_KEY, GOOGLE_CREDENTIALS, SPREADSHEET_ID]):
 bot = telebot.TeleBot(BOT_TOKEN)
 
 # Настройки Google Sheets
-STATS_SHEET_NAME = "Sheet1"  # Для статистики
-USERS_SHEET_NAME = "Users"  # Для пользователей
-LAST_CHOICE_SHEET_NAME = "LastChoice"  # Для последнего выбора
+STATS_SHEET_NAME = "Sheet1"
+USERS_SHEET_NAME = "Users"
+LAST_CHOICE_SHEET_NAME = "LastChoice"
+
+# Глобальные переменные
+sheets = {"stats": None, "users": None, "last_choice": None}
+users = {}
+last_choice = {}
+stats_cache = []
+
+# Проверка существования таблицы
+def check_spreadsheet_exists(creds):
+    try:
+        print(f"Проверка существования таблицы: {SPREADSHEET_ID}")
+        service = build("sheets", "v4", credentials=creds)
+        response = service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID).execute()
+        print(f"Таблица {SPREADSHEET_ID} существует: {response['properties']['title']}")
+        return True
+    except HttpError as e:
+        error_details = json.loads(e.content.decode()) if e.content else {}
+        print(f"Ошибка проверки таблицы {SPREADSHEET_ID}: {str(e)}, детали: {error_details}")
+        return False
+    except Exception as e:
+        print(f"Неожиданная ошибка при проверке таблицы {SPREADSHEET_ID}: {str(e)}")
+        return False
+
+# Создание новой таблицы
+def create_new_spreadsheet(creds):
+    try:
+        print("Попытка создания новой таблицы")
+        service = build("sheets", "v4", credentials=creds)
+        spreadsheet = {
+            "properties": {"title": f"BotStats_{int(time.time())}"}
+        }
+        response = service.spreadsheets().create(body=spreadsheet).execute()
+        new_spreadsheet_id = response["spreadsheetId"]
+        print(f"Создана новая таблица: {new_spreadsheet_id}")
+        return new_spreadsheet_id
+    except Exception as e:
+        print(f"Ошибка создания новой таблицы: {str(e)}")
+        return None
 
 # Инициализация Google Sheets
 def init_sheets():
     try:
+        print("Попытка парсинга GOOGLE_CREDENTIALS")
         creds_dict = json.loads(GOOGLE_CREDENTIALS)
         print("GOOGLE_CREDENTIALS успешно распарсен")
         creds = Credentials.from_service_account_info(
@@ -48,26 +91,38 @@ def init_sheets():
             scopes=[
                 "https://spreadsheets.google.com/feeds",
                 "https://www.googleapis.com/auth/drive",
+                "https://www.googleapis.com/auth/spreadsheets",
             ],
         )
+        print("Попытка авторизации Google Sheets")
         client = gspread.authorize(creds)
         print("Google Sheets авторизация успешна")
+
+        # Проверка существования таблицы
+        if not check_spreadsheet_exists(creds):
+            print(f"Таблица {SPREADSHEET_ID} недоступна или не существует")
+            return None
+
+        print(f"Попытка открытия таблицы: {SPREADSHEET_ID}")
         workbook = client.open_by_key(SPREADSHEET_ID)
         print(f"Таблица открыта: {SPREADSHEET_ID}")
 
         # Проверяем/создаём листы
         try:
             stats_sheet = workbook.worksheet(STATS_SHEET_NAME)
+            print(f"Лист {STATS_SHEET_NAME} найден")
         except gspread.exceptions.WorksheetNotFound:
             stats_sheet = workbook.add_worksheet(title=STATS_SHEET_NAME, rows=100, cols=10)
             print(f"Создан лист: {STATS_SHEET_NAME}")
         try:
             users_sheet = workbook.worksheet(USERS_SHEET_NAME)
+            print(f"Лист {USERS_SHEET_NAME} найден")
         except gspread.exceptions.WorksheetNotFound:
             users_sheet = workbook.add_worksheet(title=USERS_SHEET_NAME, rows=100, cols=10)
             print(f"Создан лист: {USERS_SHEET_NAME}")
         try:
             last_choice_sheet = workbook.worksheet(LAST_CHOICE_SHEET_NAME)
+            print(f"Лист {LAST_CHOICE_SHEET_NAME} найден")
         except gspread.exceptions.WorksheetNotFound:
             last_choice_sheet = workbook.add_worksheet(title=LAST_CHOICE_SHEET_NAME, rows=100, cols=10)
             print(f"Создан лист: {LAST_CHOICE_SHEET_NAME}")
@@ -93,14 +148,18 @@ def init_sheets():
         print(f"Ошибка инициализации Google Sheets: {str(e)}")
         return None
 
-sheets = init_sheets()
-if not sheets:
-    print("Предупреждение: Google Sheets недоступен, бот будет работать с локальным кэшем")
-    sheets = {"stats": None, "users": None, "last_choice": None}
-
-# Локальный кэш для данных
-users = {}
-last_choice = {}
+# Периодическое переподключение к Google Sheets
+def reconnect_sheets():
+    global sheets
+    if not all(sheets.values()):
+        print("Попытка переподключения к Google Sheets")
+        new_sheets = init_sheets()
+        if new_sheets:
+            sheets = new_sheets
+            sync_stats_to_sheets()
+            load_users()
+            load_last_choice()
+            print("Переподключение успешно, данные синхронизированы")
 
 # Загрузка данных из Google Sheets
 def load_users():
@@ -109,7 +168,7 @@ def load_users():
         print("Google Sheets недоступен, использую локальный кэш пользователей")
         return users
     try:
-        data = sheets["users"].get_all_values()[1:]  # Пропускаем заголовок
+        data = sheets["users"].get_all_values()[1:]
         users = {}
         for row in data:
             try:
@@ -132,7 +191,7 @@ def load_last_choice():
         print("Google Sheets недоступен, использую локальный кэш LastChoice")
         return last_choice
     try:
-        data = sheets["last_choice"].get_all_values()[1:]  # Пропускаем заголовок
+        data = sheets["last_choice"].get_all_values()[1:]
         last_choice = {}
         for row in data:
             try:
@@ -145,9 +204,6 @@ def load_last_choice():
     except Exception as e:
         print(f"Ошибка загрузки LastChoice: {e}")
     return last_choice
-
-users = load_users()
-last_choice = load_last_choice()
 
 # Сохранение данных в Google Sheets
 def save_users():
@@ -178,6 +234,31 @@ def save_last_choice():
         print("LastChoice сохранён в Google Sheets")
     except Exception as e:
         print(f"Ошибка сохранения LastChoice: {e}")
+
+# Синхронизация локального кэша статистики с Google Sheets
+def sync_stats_to_sheets():
+    global stats_cache
+    if not sheets["stats"] or not stats_cache:
+        return
+    try:
+        for entry in stats_cache:
+            sheets["stats"].append_row(entry)
+        print(f"Синхронизировано {len(stats_cache)} записей статистики в Google Sheets")
+        stats_cache = []
+    except Exception as e:
+        print(f"Ошибка синхронизации статистики: {e}")
+
+# Инициализация Google Sheets
+sheets = init_sheets()
+if not sheets:
+    print("Предупреждение: Google Sheets недоступен, бот будет работать с локальным кэшем")
+    sheets = {"stats": None, "users": None, "last_choice": None}
+
+users = load_users()
+last_choice = load_last_choice()
+
+# Фоновое переподключение к Google Sheets
+schedule.every(5).minutes.do(reconnect_sheets)
 
 # Фразы для roast (agr)
 roast_phrases = [
@@ -263,7 +344,7 @@ def run_scheduler():
 threading.Thread(target=run_scheduler, daemon=True).start()
 
 # Обработчик команд
-@bot.message_handler(commands=["start", "test", "list", "choose", "stats", "register", "agr", "monetka"])
+@bot.message_handler(commands=["start", "test", "list", "choose", "stats", "register", "agr", "monetka", "createsheet"])
 def handle_commands(message):
     chat_id = str(message.chat.id)
     command = message.text.split()[0].split("@")[0].lower()
@@ -297,10 +378,10 @@ def handle_commands(message):
         while not_handsome["id"] == handsome["id"]:
             not_handsome = random.choice(participants)
 
-        # Записываем в Google Таблицы
+        # Записываем в Google Таблицы или кэш
+        current_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         if sheets["stats"]:
             try:
-                current_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 sheets["stats"].append_row(
                     [current_date, str(handsome["id"]), "@" + handsome["name"], "Красавчик"]
                 )
@@ -309,8 +390,15 @@ def handle_commands(message):
                 )
                 print(f"Записано в Google Sheets: Красавчик @{handsome['name']}, Пидор @{not_handsome['name']}")
             except Exception as e:
-                bot.reply_to(message, f"Ошибка при сохранении в таблицу: {str(e)}")
+               率先
                 print(f"Ошибка записи в Google Sheets: {e}")
+                stats_cache.append([current_date, str(handsome["id"]), "@" + handsome["name"], "Красавчик"])
+                stats_cache.append([current_date, str(not_handsome["id"]), "@" + not_handsome["name"], "Пидор"])
+                bot.reply_to(message, "Ошибка записи в Google Sheets, данные сохранены в локальном кэше")
+        else:
+            stats_cache.append([current_date, str(handsome["id"]), "@" + handsome["name"], "Красавчик"])
+            stats_cache.append([current_date, str(not_handsome["id"]), "@" + not_handsome["name"], "Пидор"])
+            print(f"Google Sheets недоступен, данные сохранены в локальном кэше: Красавчик @{handsome['name']}, Пидор @{not_handsome['name']}")
 
         # Фраза для выбора
         phrase = random.choice(epic_phrases).format(
@@ -327,17 +415,27 @@ def handle_commands(message):
 
     elif command == "/stats":
         if not sheets["stats"]:
-            bot.reply_to(message, "Ошибка: не удалось подключиться к Google Таблицам. Используется локальный кэш.")
-            return
-
-        try:
-            # Читаем данные из таблицы (кроме заголовка)
-            data = sheets["stats"].get_all_values()[1:]  # Пропускаем заголовок
-            if not data:
+            if not stats_cache:
                 bot.reply_to(message, "Статистика пуста. Используйте /choose!")
                 return
+            data = stats_cache
+            print("Google Sheets недоступен, использую локальный кэш для статистики")
+        else:
+            try:
+                data = sheets["stats"].get_all_values()[1:]
+                if not data and not stats_cache:
+                    bot.reply_to(message, "Статистика пуста. Используйте /choose!")
+                    return
+                data = data + stats_cache
+            except Exception as e:
+                print(f"Ошибка чтения Google Sheets: {e}")
+                if not stats_cache:
+                    bot.reply_to(message, "Ошибка: не удалось подключиться к Google Таблицам и нет локального кэша.")
+                    return
+                data = stats_cache
+                print("Google Sheets недоступен, использую локальный кэш для статистики")
 
-            # Подсчитываем статистику
+        try:
             stats = {}
             for row in data:
                 try:
@@ -352,7 +450,6 @@ def handle_commands(message):
                     print(f"Ошибка обработки строки статистики: {row}")
                     continue
 
-            # Формируем ответ
             sorted_stats = sorted(stats.items(), key=lambda x: x[1]["wins"], reverse=True)
             response = "📊 Статистика:\n"
             for _, data in sorted_stats:
@@ -364,7 +461,7 @@ def handle_commands(message):
             bot.reply_to(message, response)
         except Exception as e:
             bot.reply_to(message, f"Ошибка при чтении статистики: {str(e)}")
-            print(f"Ошибка чтения Google Sheets: {e}")
+            print(f"Ошибка формирования статистики: {e}")
 
     elif command == "/register":
         user_id = message.from_user.id
@@ -402,6 +499,27 @@ def handle_commands(message):
         result = random.choice(coin_sides)
         bot.reply_to(message, f"Монетка показала: {result}")
 
+    elif command == "/createsheet":
+        try:
+            creds_dict = json.loads(GOOGLE_CREDENTIALS)
+            creds = Credentials.from_service_account_info(
+                creds_dict,
+                scopes=[
+                    "https://spreadsheets.google.com/feeds",
+                    "https://www.googleapis.com/auth/drive",
+                    "https://www.googleapis.com/auth/spreadsheets",
+                ],
+            )
+            new_spreadsheet_id = create_new_spreadsheet(creds)
+            if new_spreadsheet_id:
+                bot.reply_to(message, f"Создана новая таблица: {new_spreadsheet_id}. Обновите SPREADSHEET_ID в настройках!")
+                print(f"Создана новая таблица: {new_spreadsheet_id}")
+            else:
+                bot.reply_to(message, "Ошибка создания таблицы. Проверьте настройки Google API.")
+        except Exception as e:
+            bot.reply_to(message, f"Ошибка создания таблицы: {str(e)}")
+            print(f"Ошибка создания таблицы: {str(e)}")
+
 # Маршрут для вебхуков
 @app.route(f"/{BOT_TOKEN}", methods=["POST"])
 def get_updates():
@@ -416,16 +534,27 @@ def get_updates():
 
 # Установка вебхука
 def set_webhook():
+    if not RAILWAY_PUBLIC_DOMAIN:
+        print("RAILWAY_PUBLIC_DOMAIN не задан, переключаюсь на polling")
+        return False
     try:
         bot.remove_webhook()
         time.sleep(0.1)
-        webhook_url = f"https://{os.getenv('RAILWAY_PUBLIC_DOMAIN')}/{BOT_TOKEN}"
+        webhook_url = f"https://{RAILWAY_PUBLIC_DOMAIN}/{BOT_TOKEN}"
+        print(f"Попытка установки вебхука: {webhook_url}")
         bot.set_webhook(url=webhook_url)
         print(f"Вебхук установлен: {webhook_url}")
+        return True
     except Exception as e:
         print(f"Ошибка установки вебхука: {e}")
+        return False
 
+# Запуск бота
 if __name__ == "__main__":
     print("Бот запускается...")
-    set_webhook()
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+    webhook_success = set_webhook()
+    if webhook_success:
+        app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+    else:
+        print("Вебхук не установлен, использую polling")
+        bot.infinity_polling()
