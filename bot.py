@@ -60,22 +60,28 @@ def init_sheets():
             stats_sheet = workbook.worksheet(STATS_SHEET_NAME)
         except gspread.exceptions.WorksheetNotFound:
             stats_sheet = workbook.add_worksheet(title=STATS_SHEET_NAME, rows=100, cols=10)
+            print(f"Создан лист: {STATS_SHEET_NAME}")
         try:
             users_sheet = workbook.worksheet(USERS_SHEET_NAME)
         except gspread.exceptions.WorksheetNotFound:
             users_sheet = workbook.add_worksheet(title=USERS_SHEET_NAME, rows=100, cols=10)
+            print(f"Создан лист: {USERS_SHEET_NAME}")
         try:
             last_choice_sheet = workbook.worksheet(LAST_CHOICE_SHEET_NAME)
         except gspread.exceptions.WorksheetNotFound:
             last_choice_sheet = workbook.add_worksheet(title=LAST_CHOICE_SHEET_NAME, rows=100, cols=10)
+            print(f"Создан лист: {LAST_CHOICE_SHEET_NAME}")
 
         # Проверяем/создаем заголовки
         if not stats_sheet.get("A1:D1"):
             stats_sheet.append_row(["Дата", "User ID", "Username", "Статус"])
+            print("Заголовки добавлены в Sheet1")
         if not users_sheet.get("A1:C1"):
             users_sheet.append_row(["Chat ID", "User ID", "Username"])
+            print("Заголовки добавлены в Users")
         if not last_choice_sheet.get("A1:B1"):
             last_choice_sheet.append_row(["Chat ID", "Timestamp"])
+            print("Заголовки добавлены в LastChoice")
 
         print("Google Sheets успешно инициализирован")
         return {
@@ -89,17 +95,25 @@ def init_sheets():
 
 sheets = init_sheets()
 if not sheets:
-    print("Критическая ошибка: Не удалось подключиться к Google Sheets. Бот не запустится.")
-    exit(1)
+    print("Предупреждение: Google Sheets недоступен, бот будет работать с локальным кэшем")
+    sheets = {"stats": None, "users": None, "last_choice": None}
+
+# Локальный кэш для данных
+users = {}
+last_choice = {}
 
 # Загрузка данных из Google Sheets
 def load_users():
-    users = {}
+    global users
+    if not sheets["users"]:
+        print("Google Sheets недоступен, использую локальный кэш пользователей")
+        return users
     try:
         data = sheets["users"].get_all_values()[1:]  # Пропускаем заголовок
+        users = {}
         for row in data:
-            chat_id = row[0]
             try:
+                chat_id = row[0]
                 user_id = int(row[1])
                 username = row[2]
                 if chat_id not in users:
@@ -113,12 +127,16 @@ def load_users():
     return users
 
 def load_last_choice():
-    last_choice = {}
+    global last_choice
+    if not sheets["last_choice"]:
+        print("Google Sheets недоступен, использую локальный кэш LastChoice")
+        return last_choice
     try:
         data = sheets["last_choice"].get_all_values()[1:]  # Пропускаем заголовок
+        last_choice = {}
         for row in data:
-            chat_id = row[0]
             try:
+                chat_id = row[0]
                 timestamp = float(row[1])
                 last_choice[chat_id] = timestamp
             except (IndexError, ValueError):
@@ -133,6 +151,9 @@ last_choice = load_last_choice()
 
 # Сохранение данных в Google Sheets
 def save_users():
+    if not sheets["users"]:
+        print("Google Sheets недоступен, пользователи сохранены в локальном кэше")
+        return
     try:
         sheets["users"].delete_rows(2, sheets["users"].row_count)
         rows = []
@@ -146,6 +167,9 @@ def save_users():
         print(f"Ошибка сохранения пользователей: {e}")
 
 def save_last_choice():
+    if not sheets["last_choice"]:
+        print("Google Sheets недоступен, LastChoice сохранён в локальном кэше")
+        return
     try:
         sheets["last_choice"].delete_rows(2, sheets["last_choice"].row_count)
         rows = [[chat_id, str(timestamp)] for chat_id, timestamp in last_choice.items()]
@@ -303,7 +327,7 @@ def handle_commands(message):
 
     elif command == "/stats":
         if not sheets["stats"]:
-            bot.reply_to(message, "Ошибка: не удалось подключиться к Google Таблицам.")
+            bot.reply_to(message, "Ошибка: не удалось подключиться к Google Таблицам. Используется локальный кэш.")
             return
 
         try:
