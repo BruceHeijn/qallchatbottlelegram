@@ -579,7 +579,7 @@ def handle_commands(message):
             if register_attempts[chat_id][user_id] == 1:
                 bot.reply_to(message, f"Вы уже зарегистрированы, долбаёб @{username}!")
             else:
-                bot.reply_to(message, "Да иди ты уже нахуй, @{username}!")
+                bot.reply_to(message, f"Да иди ты уже нахуй, @{username}!")
             print(f"Повторная попытка регистрации: @{username}, попытка #{register_attempts[chat_id][user_id]}")
 
     elif command == "/agr":
@@ -694,4 +694,5 @@ if __name__ == "__main__":
     else:
         print("Вебхук не установлен, использую polling")
         bot.infinity_polling()
+
 
