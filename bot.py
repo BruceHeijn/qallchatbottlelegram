@@ -15,7 +15,7 @@ from flask import Flask, request
 app = Flask(__name__)
 
 # Загружаем токены из переменных окружения
-BOT_TOKEN = os.getenv("BOT_TOKEN")  # Исправлено с TOKEN
+BOT_TOKEN = os.getenv("TOKEN")  # Исправлено с TOKEN
 TENOR_API_KEY = os.getenv("TENOR_API_KEY")
 GOOGLE_CREDENTIALS = os.getenv("GOOGLE_CREDENTIALS")
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")  # Исправлено с хардкода
@@ -385,3 +385,4 @@ if __name__ == "__main__":
     print("Бот запускается...")
     set_webhook()
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+
