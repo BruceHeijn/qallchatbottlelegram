@@ -45,7 +45,8 @@ LAST_CHOICE_SHEET_NAME = "LastChoice"
 # Глобальные переменные
 sheets = {"stats": None, "users": None, "last_choice": None}
 users = {}
-last_choice = {}  # Хранит время последнего /choose и /agr для каждого чата
+last_choice = {}  # Хранит время последнего /choose для каждого чата
+last_agr = {}     # Хранит время последнего /agr для каждого чата
 stats_cache = []
 
 # Проверка существования таблицы
@@ -146,8 +147,8 @@ def init_sheets():
         if not users_sheet.get("A1:C1"):
             users_sheet.append_row(["Chat ID", "User ID", "Username"])
             print("Заголовки добавлены в Users")
-        if not last_choice_sheet.get("A1:B1"):
-            last_choice_sheet.append_row(["Chat ID", "Timestamp"])
+        if not last_choice_sheet.get("A1:C1"):
+            last_choice_sheet.append_row(["Chat ID", "Choose Timestamp", "Agr Timestamp"])
             print("Заголовки добавлены в LastChoice")
 
         print("Google Sheets успешно инициализирован")
@@ -198,24 +199,29 @@ def load_users():
     return users
 
 def load_last_choice():
-    global last_choice
+    global last_choice, last_agr
     if not sheets["last_choice"]:
         print("Google Sheets недоступен, использую локальный кэш LastChoice")
-        return last_choice
+        return last_choice, last_agr
     try:
         data = sheets["last_choice"].get_all_values()[1:]
         last_choice = {}
+        last_agr = {}
         for row in data:
             try:
                 chat_id = row[0]
-                timestamp = float(row[1])
-                last_choice[chat_id] = timestamp
+                choose_timestamp = float(row[1]) if row[1] else 0
+                agr_timestamp = float(row[2]) if len(row) > 2 and row[2] else 0
+                if choose_timestamp:
+                    last_choice[chat_id] = choose_timestamp
+                if agr_timestamp:
+                    last_agr[chat_id] = agr_timestamp
             except (IndexError, ValueError):
                 continue
-        print("LastChoice загружен из Google Sheets")
+        print("LastChoice и LastAgr загружены из Google Sheets")
     except Exception as e:
-        print(f"Ошибка загрузки LastChoice: {e}")
-    return last_choice
+        print(f"Ошибка загрузки LastChoice/LastAgr: {e}")
+    return last_choice, last_agr
 
 # Сохранение данных в Google Sheets
 def save_users():
@@ -236,16 +242,20 @@ def save_users():
 
 def save_last_choice():
     if not sheets["last_choice"]:
-        print("Google Sheets недоступен, LastChoice сохранён в локальном кэше")
+        print("Google Sheets недоступен, LastChoice/LastAgr сохранены в локальном кэше")
         return
     try:
         sheets["last_choice"].delete_rows(2, sheets["last_choice"].row_count)
-        rows = [[chat_id, str(timestamp)] for chat_id, timestamp in last_choice.items()]
+        rows = []
+        for chat_id in set(list(last_choice.keys()) + list(last_agr.keys())):
+            choose_time = str(last_choice.get(chat_id, ""))
+            agr_time = str(last_agr.get(chat_id, ""))
+            rows.append([chat_id, choose_time, agr_time])
         if rows:
             sheets["last_choice"].append_rows(rows)
-        print("LastChoice сохранён в Google Sheets")
+        print("LastChoice и LastAgr сохранены в Google Sheets")
     except Exception as e:
-        print(f"Ошибка сохранения LastChoice: {e}")
+        print(f"Ошибка сохранения LastChoice/LastAgr: {e}")
 
 # Синхронизация локального кэша статистики с Google Sheets
 def sync_stats_to_sheets():
@@ -267,7 +277,7 @@ if not sheets:
     sheets = {"stats": None, "users": None, "last_choice": None}
 
 users = load_users()
-last_choice = load_last_choice()
+last_choice, last_agr = load_last_choice()
 
 # Фоновое переподключение к Google Sheets
 schedule.every(5).minutes.do(reconnect_sheets)
@@ -473,8 +483,8 @@ def handle_commands(message):
             return
 
         current_time = time.time()
-        if chat_id in last_choice and current_time - last_choice[chat_id] < 86400:
-            remaining = int(86400 - (current_time - last_choice[chat_id]))
+        if chat_id in last_agr and current_time - last_agr[chat_id] < 86400:
+            remaining = int(86400 - (current_time - last_agr[chat_id]))
             hours = remaining // 3600
             minutes = (remaining % 3600) // 60
             bot.reply_to(message, f"Ещё рано для агра! Подождите {hours} ч {minutes} мин.")
@@ -496,7 +506,7 @@ def handle_commands(message):
         response = f"🔥 @{author} запускает агр!\n{phrase}"
         bot.reply_to(message, response)
 
-        last_choice[chat_id] = current_time
+        last_agr[chat_id] = current_time
         save_last_choice()
 
     elif command == "/monetka":
@@ -579,4 +589,3 @@ if __name__ == "__main__":
     else:
         print("Вебхук не установлен, использую polling")
         bot.infinity_polling()
-
