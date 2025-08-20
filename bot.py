@@ -64,6 +64,18 @@ def check_spreadsheet_exists(creds):
         print(f"Неожиданная ошибка при проверке таблицы {SPREADSHEET_ID}: {str(e)}")
         return False
 
+# Проверка статуса Google Sheets API
+def check_sheets_api(creds):
+    try:
+        service = build("sheets", "v4", credentials=creds)
+        service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID).execute()
+        return "Google Sheets API активен, таблица доступна."
+    except HttpError as e:
+        error_details = json.loads(e.content.decode()) if e.content else {}
+        return f"Ошибка Google Sheets API: {str(e)}, детали: {error_details}"
+    except Exception as e:
+        return f"Неожиданная ошибка проверки API: {str(e)}"
+
 # Создание новой таблицы
 def create_new_spreadsheet(creds):
     try:
@@ -344,7 +356,7 @@ def run_scheduler():
 threading.Thread(target=run_scheduler, daemon=True).start()
 
 # Обработчик команд
-@bot.message_handler(commands=["start", "test", "list", "choose", "stats", "register", "agr", "monetka", "createsheet"])
+@bot.message_handler(commands=["start", "test", "list", "choose", "stats", "register", "agr", "monetka", "createsheet", "checksheets"])
 def handle_commands(message):
     chat_id = str(message.chat.id)
     command = message.text.split()[0].split("@")[0].lower()
@@ -519,6 +531,23 @@ def handle_commands(message):
             bot.reply_to(message, f"Ошибка создания таблицы: {str(e)}")
             print(f"Ошибка создания таблицы: {str(e)}")
 
+    elif command == "/checksheets":
+        try:
+            creds_dict = json.loads(GOOGLE_CREDENTIALS)
+            creds = Credentials.from_service_account_info(
+                creds_dict,
+                scopes=[
+                    "https://spreadsheets.google.com/feeds",
+                    "https://www.googleapis.com/auth/drive",
+                    "https://www.googleapis.com/auth/spreadsheets",
+                ],
+            )
+            status = check_sheets_api(creds)
+            bot.reply_to(message, f"Статус Google Sheets: {status}")
+        except Exception as e:
+            bot.reply_to(message, f"Ошибка проверки Google Sheets: {str(e)}")
+            print(f"Ошибка проверки Google Sheets: {str(e)}")
+
 # Маршрут для вебхуков
 @app.route(f"/{BOT_TOKEN}", methods=["POST"])
 def get_updates():
@@ -557,4 +586,3 @@ if __name__ == "__main__":
     else:
         print("Вебхук не установлен, использую polling")
         bot.infinity_polling()
-
