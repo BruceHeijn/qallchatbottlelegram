@@ -1,9 +1,10 @@
-pyTelegramBotAPI
-schedule
-requests
-google-auth
 google-auth-oauthlib
 google-auth-httplib2
 google-api-python-client
-gspread
 oauth2client
+pyTelegramBotAPI==4.22.1
+requests==2.32.3
+schedule==1.2.2
+gspread==6.1.2
+google-auth==2.35.0
+flask==3.0.3
