@@ -9,17 +9,34 @@ import requests
 import datetime
 import gspread
 from google.oauth2.service_account import Credentials
+from flask import Flask, request
+
+# Инициализация Flask для вебхуков
+app = Flask(__name__)
 
 # Загружаем токены из переменных окружения
-TOKEN = os.getenv("TOKEN")  # Токен бота
-TENOR_API_KEY = os.getenv("TENOR_API_KEY")  # API-ключ Tenor
-GOOGLE_CREDENTIALS = os.getenv("GOOGLE_CREDENTIALS")  # JSON-ключ Google Cloud
+BOT_TOKEN = os.getenv("BOT_TOKEN")  # Исправлено с TOKEN
+TENOR_API_KEY = os.getenv("TENOR_API_KEY")
+GOOGLE_CREDENTIALS = os.getenv("GOOGLE_CREDENTIALS")
+SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")  # Исправлено с хардкода
 
-bot = telebot.TeleBot(TOKEN)
+# Проверка переменных окружения
+print(f"BOT_TOKEN: {'Set' if BOT_TOKEN else 'Not set'}")
+print(f"TENOR_API_KEY: {'Set' if TENOR_API_KEY else 'Not set'}")
+print(f"GOOGLE_CREDENTIALS: {GOOGLE_CREDENTIALS[:50] if GOOGLE_CREDENTIALS else 'Not set'}...")
+print(f"SPREADSHEET_ID: {SPREADSHEET_ID if SPREADSHEET_ID else 'Not set'}")
+
+# Проверка, что все переменные заданы
+if not all([BOT_TOKEN, TENOR_API_KEY, GOOGLE_CREDENTIALS, SPREADSHEET_ID]):
+    print("Ошибка: Одна или несколько переменных окружения не заданы")
+    exit(1)
+
+bot = telebot.TeleBot(BOT_TOKEN)
 
 # Настройки Google Sheets
-SPREADSHEET_ID = ("SPREADSHEET_ID")  # Замени на ID своей Google Таблицы
-SHEET_NAME = "Sheet1"  # Имя листа
+STATS_SHEET_NAME = "Sheet1"  # Для статистики
+USERS_SHEET_NAME = "Users"  # Для пользователей
+LAST_CHOICE_SHEET_NAME = "LastChoice"  # Для последнего выбора
 
 # Инициализация Google Sheets
 def init_sheets():
@@ -33,38 +50,94 @@ def init_sheets():
             ],
         )
         client = gspread.authorize(creds)
-        sheet = client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_NAME)
+        workbook = client.open_by_key(SPREADSHEET_ID)
+
+        stats_sheet = workbook.worksheet(STATS_SHEET_NAME)
+        users_sheet = workbook.worksheet(USERS_SHEET_NAME)
+        last_choice_sheet = workbook.worksheet(LAST_CHOICE_SHEET_NAME)
+
         # Проверяем/создаем заголовки
-        if not sheet.get("A1:D1"):
-            sheet.append_row(["Дата", "User ID", "Username", "Статус"])
-        return sheet
+        if not stats_sheet.get("A1:D1"):
+            stats_sheet.append_row(["Дата", "User ID", "Username", "Статус"])
+        if not users_sheet.get("A1:C1"):
+            users_sheet.append_row(["Chat ID", "User ID", "Username"])
+        if not last_choice_sheet.get("A1:B1"):
+            last_choice_sheet.append_row(["Chat ID", "Timestamp"])
+
+        print("Google Sheets успешно инициализирован")
+        return {
+            "stats": stats_sheet,
+            "users": users_sheet,
+            "last_choice": last_choice_sheet
+        }
     except Exception as e:
         print(f"Ошибка инициализации Google Sheets: {e}")
         return None
 
-sheet = init_sheets()
+sheets = init_sheets()
+if not sheets:
+    print("Критическая ошибка: Не удалось подключиться к Google Sheets. Бот не запустится.")
+    exit(1)
 
-# Файлы для хранения данных (оставляем для users и last_choice)
-USERS_FILE = "users.json"
-LAST_CHOICE_FILE = "last_choice.json"
+# Загрузка данных из Google Sheets
+def load_users():
+    users = {}
+    try:
+        data = sheets["users"].get_all_values()[1:]  # Пропускаем заголовок
+        for row in data:
+            chat_id = row[0]
+            user_id = int(row[1])
+            username = row[2]
+            if chat_id not in users:
+                users[chat_id] = []
+            users[chat_id].append({"id": user_id, "name": username})
+        print("Пользователи загружены из Google Sheets")
+    except Exception as e:
+        print(f"Ошибка загрузки пользователей: {e}")
+    return users
 
-# Функции для работы с файлами
-def load_data(file_name, default):
-    if os.path.exists(file_name):
-        with open(file_name, "r") as f:
+def load_last_choice():
+    last_choice = {}
+    try:
+        data = sheets["last_choice"].get_all_values()[1:]  # Пропускаем заголовок
+        for row in data:
+            chat_id = row[0]
             try:
-                return json.load(f)
-            except json.JSONDecodeError:
-                return default
-    return default
+                timestamp = float(row[1])
+                last_choice[chat_id] = timestamp
+            except ValueError:
+                continue
+        print("LastChoice загружен из Google Sheets")
+    except Exception as e:
+        print(f"Ошибка загрузки LastChoice: {e}")
+    return last_choice
 
-def save_data(file_name, data):
-    with open(file_name, "w") as f:
-        json.dump(data, f, indent=2)
+users = load_users()
+last_choice = load_last_choice()
 
-# Загружаем данные
-users = load_data(USERS_FILE, {})
-last_choice = load_data(LAST_CHOICE_FILE, {})
+# Сохранение данных в Google Sheets
+def save_users():
+    try:
+        sheets["users"].delete_rows(2, sheets["users"].row_count)
+        rows = []
+        for chat_id, user_list in users.items():
+            for user in user_list:
+                rows.append([chat_id, str(user["id"]), user["name"]])
+        if rows:
+            sheets["users"].append_rows(rows)
+        print("Пользователи сохранены в Google Sheets")
+    except Exception as e:
+        print(f"Ошибка сохранения пользователей: {e}")
+
+def save_last_choice():
+    try:
+        sheets["last_choice"].delete_rows(2, sheets["last_choice"].row_count)
+        rows = [[chat_id, str(timestamp)] for chat_id, timestamp in last_choice.items()]
+        if rows:
+            sheets["last_choice"].append_rows(rows)
+        print("LastChoice сохранён в Google Sheets")
+    except Exception as e:
+        print(f"Ошибка сохранения LastChoice: {e}")
 
 # Фразы для roast (agr)
 roast_phrases = [
@@ -106,6 +179,8 @@ def send_daily_meme():
                 if "results" in data and len(data["results"]) > 0:
                     gif_url = random.choice(data["results"])["media_formats"]["gif"]["url"]
                     bot.send_animation(chat_id, gif_url, caption="Ваш ежедневный мемчик 🤣")
+            else:
+                print(f"Ошибка Tenor API: {r.status_code}")
         except Exception as e:
             print(f"Ошибка отправки мема: {e}")
 
@@ -114,13 +189,16 @@ def send_daily_roast():
     for chat_id in users.keys():
         if chat_id not in users or not users[chat_id]:
             continue
-        target = random.choice(users[chat_id])
-        target_name = target["name"]
-        phrase = random.choice(roast_phrases).replace("{name}", f"@{target_name}")
-        for participant in users[chat_id]:
-            bot.send_message(
-                chat_id, f"🔥 @{participant['name']} запускает агр на @{target_name}!\n{phrase}"
-            )
+        try:
+            target = random.choice(users[chat_id])
+            target_name = target["name"]
+            phrase = random.choice(roast_phrases).replace("{name}", f"@{target_name}")
+            for participant in users[chat_id]:
+                bot.send_message(
+                    chat_id, f"🔥 @{participant['name']} запускает агр на @{target_name}!\n{phrase}"
+                )
+        except Exception as e:
+            print(f"Ошибка отправки roast в чат {chat_id}: {e}")
 
 # Случайное время для запуска заданий
 def schedule_random_times():
@@ -129,38 +207,9 @@ def schedule_random_times():
     meme_minute = random.randint(0, 59)
     roast_hour = random.randint(6, 23)
     roast_minute = random.randint(0, 59)
-    schedule.every().day.at(f"{meme_hour:02d}:{meme_minute:02d}").do(send_daily_meme).tag(
-        "daily_tasks"
-    )
-    schedule.every().day.at(f"{roast_hour:02d}:{roast_minute:02d}").do(
-        send_daily_roast
-    ).tag("daily_tasks")
-
-# Функция для отправки агра один раз в день
-def send_daily_agr():
-    for chat_id in users.keys():
-        if chat_id not in users or not users[chat_id]:
-            continue
-        target = random.choice(users[chat_id])
-        target_name = target["name"]
-        phrase = random.choice(roast_phrases).replace("{name}", f"@{target_name}")
-        for participant in users[chat_id]:
-            bot.send_message(
-                chat_id, f"🔥 @{participant['name']} запускает агр на @{target_name}!\n{phrase}"
-            )
-
-# Запускаем агр один раз в день в случайное время
-def schedule_daily_agr():
-    schedule.clear("daily_agr")
-    agr_hour = random.randint(6, 23)
-    agr_minute = random.randint(0, 59)
-    schedule.every().day.at(f"{agr_hour:02d}:{agr_minute:02d}").do(send_daily_agr).tag(
-        "daily_agr"
-    )
-
-# Обновляем расписание агра раз в сутки
-schedule_daily_agr()
-schedule.every().day.at("05:55").do(schedule_daily_agr)
+    schedule.every().day.at(f"{meme_hour:02d}:{meme_minute:02d}").do(send_daily_meme).tag("daily_tasks")
+    schedule.every().day.at(f"{roast_hour:02d}:{roast_minute:02d}").do(send_daily_roast).tag("daily_tasks")
+    print(f"Запланировано: мемы в {meme_hour:02d}:{meme_minute:02d}, roast в {roast_hour:02d}:{roast_minute:02d}")
 
 # Обновляем расписание раз в сутки
 schedule_random_times()
@@ -174,9 +223,7 @@ def run_scheduler():
 threading.Thread(target=run_scheduler, daemon=True).start()
 
 # Обработчик команд
-@bot.message_handler(
-    commands=["start", "test", "list", "choose", "stats", "register", "agr", "monetka"]
-)
+@bot.message_handler(commands=["start", "test", "list", "choose", "stats", "register", "agr", "monetka"])
 def handle_commands(message):
     chat_id = str(message.chat.id)
     command = message.text.split()[0].split("@")[0].lower()
@@ -211,17 +258,19 @@ def handle_commands(message):
             not_handsome = random.choice(participants)
 
         # Записываем в Google Таблицы
-        if sheet:
+        if sheets["stats"]:
             try:
                 current_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                sheet.append_row(
-                    [current_date, handsome["id"], "@" + handsome["name"], "Красавчик"]
+                sheets["stats"].append_row(
+                    [current_date, str(handsome["id"]), "@" + handsome["name"], "Красавчик"]
                 )
-                sheet.append_row(
-                    [current_date, not_handsome["id"], "@" + not_handsome["name"], "Пидор"]
+                sheets["stats"].append_row(
+                    [current_date, str(not_handsome["id"]), "@" + not_handsome["name"], "Пидор"]
                 )
+                print(f"Записано в Google Sheets: Красавчик @{handsome['name']}, Пидор @{not_handsome['name']}")
             except Exception as e:
                 bot.reply_to(message, f"Ошибка при сохранении в таблицу: {str(e)}")
+                print(f"Ошибка записи в Google Sheets: {e}")
 
         # Фраза для выбора
         phrase = random.choice(epic_phrases).format(
@@ -234,16 +283,16 @@ def handle_commands(message):
         bot.reply_to(message, f"👎 Пидор дня: @{not_handsome['name']}")
 
         last_choice[chat_id] = current_time
-        save_data(LAST_CHOICE_FILE, last_choice)
+        save_last_choice()
 
     elif command == "/stats":
-        if not sheet:
+        if not sheets["stats"]:
             bot.reply_to(message, "Ошибка: не удалось подключиться к Google Таблицам.")
             return
 
         try:
             # Читаем данные из таблицы (кроме заголовка)
-            data = sheet.get_all_values()[1:]  # Пропускаем заголовок
+            data = sheets["stats"].get_all_values()[1:]  # Пропускаем заголовок
             if not data:
                 bot.reply_to(message, "Статистика пуста. Используйте /choose!")
                 return
@@ -271,6 +320,7 @@ def handle_commands(message):
             bot.reply_to(message, response)
         except Exception as e:
             bot.reply_to(message, f"Ошибка при чтении статистики: {str(e)}")
+            print(f"Ошибка чтения Google Sheets: {e}")
 
     elif command == "/register":
         user_id = message.from_user.id
@@ -279,7 +329,7 @@ def handle_commands(message):
             users[chat_id] = []
         if user_id not in [u["id"] for u in users[chat_id]]:
             users[chat_id].append({"id": user_id, "name": username})
-            save_data(USERS_FILE, users)
+            save_users()
             bot.reply_to(message, f"Вы зарегистрированы! @{username}")
         else:
             bot.reply_to(message, f"Вы уже зарегистрированы, долбаёб! @{username}")
@@ -308,6 +358,30 @@ def handle_commands(message):
         result = random.choice(coin_sides)
         bot.reply_to(message, f"Монетка показала: {result}")
 
-print("Бот запущен!")
-bot.polling(none_stop=True)
+# Маршрут для вебхуков
+@app.route(f"/{BOT_TOKEN}", methods=["POST"])
+def get_updates():
+    try:
+        json_string = request.get_data().decode("utf-8")
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return "OK", 200
+    except Exception as e:
+        print(f"Ошибка обработки вебхука: {e}")
+        return "Error", 500
 
+# Установка вебхука
+def set_webhook():
+    try:
+        bot.remove_webhook()
+        time.sleep(0.1)
+        webhook_url = f"https://{os.getenv('RAILWAY_PUBLIC_DOMAIN')}/{BOT_TOKEN}"
+        bot.set_webhook(url=webhook_url)
+        print(f"Вебхук установлен: {webhook_url}")
+    except Exception as e:
+        print(f"Ошибка установки вебхука: {e}")
+
+if __name__ == "__main__":
+    print("Бот запускается...")
+    set_webhook()
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
