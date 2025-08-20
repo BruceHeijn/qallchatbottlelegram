@@ -17,7 +17,7 @@ from flask import Flask, request
 app = Flask(__name__)
 
 # Загружаем токены из переменных окружения
-BOT_TOKEN = os.getenv("TOKEN")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 TENOR_API_KEY = os.getenv("TENOR_API_KEY")
 GOOGLE_CREDENTIALS = os.getenv("GOOGLE_CREDENTIALS")
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
@@ -390,8 +390,7 @@ def handle_commands(message):
                 )
                 print(f"Записано в Google Sheets: Красавчик @{handsome['name']}, Пидор @{not_handsome['name']}")
             except Exception as e:
-               率先
-                print(f"Ошибка записи в Google Sheets: {e}")
+                print(f"Ошибка записи в Google Sheets: {str(e)}")
                 stats_cache.append([current_date, str(handsome["id"]), "@" + handsome["name"], "Красавчик"])
                 stats_cache.append([current_date, str(not_handsome["id"]), "@" + not_handsome["name"], "Пидор"])
                 bot.reply_to(message, "Ошибка записи в Google Sheets, данные сохранены в локальном кэше")
@@ -428,7 +427,7 @@ def handle_commands(message):
                     return
                 data = data + stats_cache
             except Exception as e:
-                print(f"Ошибка чтения Google Sheets: {e}")
+                print(f"Ошибка чтения Google Sheets: {str(e)}")
                 if not stats_cache:
                     bot.reply_to(message, "Ошибка: не удалось подключиться к Google Таблицам и нет локального кэша.")
                     return
