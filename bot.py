@@ -577,9 +577,9 @@ def handle_commands(message):
                 register_attempts[chat_id][user_id] = 0
             register_attempts[chat_id][user_id] += 1
             if register_attempts[chat_id][user_id] == 1:
-                bot.reply_to(message, f"Вы уже зарегистрированы, долбаёб! @{username}")
+                bot.reply_to(message, f"Вы уже зарегистрированы, долбаёб @{username}!")
             else:
-                bot.reply_to(message, "да иди ты уже нахуй")
+                bot.reply_to(message, "Да иди ты уже нахуй, @{username}!")
             print(f"Повторная попытка регистрации: @{username}, попытка #{register_attempts[chat_id][user_id]}")
 
     elif command == "/agr":
@@ -592,7 +592,7 @@ def handle_commands(message):
             remaining = int(86400 - (current_time - last_agr[chat_id]))
             hours = remaining // 3600
             minutes = (remaining % 3600) // 60
-            bot.reply_to(message, f"Ещё рано для агра! Подождите {hours} ч {minutes} мин.")
+            bot.reply_to(message, f"Ещё рано для агра! Подождите {hours} ч {minutes} мин., кд")
             return
 
         author_id = message.from_user.id
@@ -694,3 +694,4 @@ if __name__ == "__main__":
     else:
         print("Вебхук не установлен, использую polling")
         bot.infinity_polling()
+
