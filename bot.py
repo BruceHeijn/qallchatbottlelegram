@@ -42,6 +42,7 @@ LAST_CHOICE_SHEET_NAME = "LastChoice"  # Для последнего выбор�
 def init_sheets():
     try:
         creds_dict = json.loads(GOOGLE_CREDENTIALS)
+        print("GOOGLE_CREDENTIALS успешно распарсен")
         creds = Credentials.from_service_account_info(
             creds_dict,
             scopes=[
@@ -50,11 +51,23 @@ def init_sheets():
             ],
         )
         client = gspread.authorize(creds)
+        print("Google Sheets авторизация успешна")
         workbook = client.open_by_key(SPREADSHEET_ID)
+        print(f"Таблица открыта: {SPREADSHEET_ID}")
 
-        stats_sheet = workbook.worksheet(STATS_SHEET_NAME)
-        users_sheet = workbook.worksheet(USERS_SHEET_NAME)
-        last_choice_sheet = workbook.worksheet(LAST_CHOICE_SHEET_NAME)
+        # Проверяем/создаём листы
+        try:
+            stats_sheet = workbook.worksheet(STATS_SHEET_NAME)
+        except gspread.exceptions.WorksheetNotFound:
+            stats_sheet = workbook.add_worksheet(title=STATS_SHEET_NAME, rows=100, cols=10)
+        try:
+            users_sheet = workbook.worksheet(USERS_SHEET_NAME)
+        except gspread.exceptions.WorksheetNotFound:
+            users_sheet = workbook.add_worksheet(title=USERS_SHEET_NAME, rows=100, cols=10)
+        try:
+            last_choice_sheet = workbook.worksheet(LAST_CHOICE_SHEET_NAME)
+        except gspread.exceptions.WorksheetNotFound:
+            last_choice_sheet = workbook.add_worksheet(title=LAST_CHOICE_SHEET_NAME, rows=100, cols=10)
 
         # Проверяем/создаем заголовки
         if not stats_sheet.get("A1:D1"):
@@ -71,7 +84,7 @@ def init_sheets():
             "last_choice": last_choice_sheet
         }
     except Exception as e:
-        print(f"Ошибка инициализации Google Sheets: {e}")
+        print(f"Ошибка инициализации Google Sheets: {str(e)}")
         return None
 
 sheets = init_sheets()
@@ -86,11 +99,14 @@ def load_users():
         data = sheets["users"].get_all_values()[1:]  # Пропускаем заголовок
         for row in data:
             chat_id = row[0]
-            user_id = int(row[1])
-            username = row[2]
-            if chat_id not in users:
-                users[chat_id] = []
-            users[chat_id].append({"id": user_id, "name": username})
+            try:
+                user_id = int(row[1])
+                username = row[2]
+                if chat_id not in users:
+                    users[chat_id] = []
+                users[chat_id].append({"id": user_id, "name": username})
+            except (IndexError, ValueError) as e:
+                print(f"Ошибка обработки строки пользователей: {row}, ошибка: {e}")
         print("Пользователи загружены из Google Sheets")
     except Exception as e:
         print(f"Ошибка загрузки пользователей: {e}")
@@ -105,7 +121,7 @@ def load_last_choice():
             try:
                 timestamp = float(row[1])
                 last_choice[chat_id] = timestamp
-            except ValueError:
+            except (IndexError, ValueError):
                 continue
         print("LastChoice загружен из Google Sheets")
     except Exception as e:
@@ -300,13 +316,17 @@ def handle_commands(message):
             # Подсчитываем статистику
             stats = {}
             for row in data:
-                user_id, username, status = row[1], row[2], row[3]
-                if user_id not in stats:
-                    stats[user_id] = {"name": username, "wins": 0, "losses": 0}
-                if status == "Красавчик":
-                    stats[user_id]["wins"] += 1
-                elif status == "Пидор":
-                    stats[user_id]["losses"] += 1
+                try:
+                    user_id, username, status = row[1], row[2], row[3]
+                    if user_id not in stats:
+                        stats[user_id] = {"name": username, "wins": 0, "losses": 0}
+                    if status == "Красавчик":
+                        stats[user_id]["wins"] += 1
+                    elif status == "Пидор":
+                        stats[user_id]["losses"] += 1
+                except IndexError:
+                    print(f"Ошибка обработки строки статистики: {row}")
+                    continue
 
             # Формируем ответ
             sorted_stats = sorted(stats.items(), key=lambda x: x[1]["wins"], reverse=True)
@@ -385,4 +405,3 @@ if __name__ == "__main__":
     print("Бот запускается...")
     set_webhook()
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
-
