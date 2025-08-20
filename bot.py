@@ -17,7 +17,7 @@ from flask import Flask, request
 app = Flask(__name__)
 
 # Загружаем токены из переменных окружения
-BOT_TOKEN = os.getenv("TOKEN")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 TENOR_API_KEY = os.getenv("TENOR_API_KEY")
 GOOGLE_CREDENTIALS = os.getenv("GOOGLE_CREDENTIALS")
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
@@ -45,7 +45,7 @@ LAST_CHOICE_SHEET_NAME = "LastChoice"
 # Глобальные переменные
 sheets = {"stats": None, "users": None, "last_choice": None}
 users = {}
-last_choice = {}
+last_choice = {}  # Хранит время последнего /choose и /agr для каждого чата
 stats_cache = []
 
 # Проверка существования таблицы
@@ -317,32 +317,13 @@ def send_daily_meme():
         except Exception as e:
             print(f"Ошибка отправки мема: {e}")
 
-# Функция для отправки roast
-def send_daily_roast():
-    for chat_id in users.keys():
-        if chat_id not in users or not users[chat_id]:
-            continue
-        try:
-            target = random.choice(users[chat_id])
-            target_name = target["name"]
-            phrase = random.choice(roast_phrases).replace("{name}", f"@{target_name}")
-            for participant in users[chat_id]:
-                bot.send_message(
-                    chat_id, f"🔥 @{participant['name']} запускает агр на @{target_name}!\n{phrase}"
-                )
-        except Exception as e:
-            print(f"Ошибка отправки roast в чат {chat_id}: {e}")
-
-# Случайное время для запуска заданий
+# Случайное время для запуска мемов
 def schedule_random_times():
     schedule.clear("daily_tasks")
     meme_hour = random.randint(6, 23)
     meme_minute = random.randint(0, 59)
-    roast_hour = random.randint(6, 23)
-    roast_minute = random.randint(0, 59)
     schedule.every().day.at(f"{meme_hour:02d}:{meme_minute:02d}").do(send_daily_meme).tag("daily_tasks")
-    schedule.every().day.at(f"{roast_hour:02d}:{roast_minute:02d}").do(send_daily_roast).tag("daily_tasks")
-    print(f"Запланировано: мемы в {meme_hour:02d}:{meme_minute:02d}, roast в {roast_hour:02d}:{roast_minute:02d}")
+    print(f"Запланировано: мемы в {meme_hour:02d}:{meme_minute:02d}")
 
 # Обновляем расписание раз в сутки
 schedule_random_times()
@@ -490,6 +471,15 @@ def handle_commands(message):
         if chat_id not in users or not users[chat_id]:
             bot.reply_to(message, "Нет зарегистрированных участников, сук! Используйте /register.")
             return
+
+        current_time = time.time()
+        if chat_id in last_choice and current_time - last_choice[chat_id] < 86400:
+            remaining = int(86400 - (current_time - last_choice[chat_id]))
+            hours = remaining // 3600
+            minutes = (remaining % 3600) // 60
+            bot.reply_to(message, f"Ещё рано для агра! Подождите {hours} ч {minutes} мин.")
+            return
+
         author_id = message.from_user.id
         author = (
             message.from_user.username
@@ -505,6 +495,9 @@ def handle_commands(message):
         phrase = random.choice(roast_phrases).replace("{name}", f"@{target_name}")
         response = f"🔥 @{author} запускает агр!\n{phrase}"
         bot.reply_to(message, response)
+
+        last_choice[chat_id] = current_time
+        save_last_choice()
 
     elif command == "/monetka":
         result = random.choice(coin_sides)
